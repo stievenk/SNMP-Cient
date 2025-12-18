@@ -1,0 +1,19 @@
+{
+    "name": "koyabu/snmpclient",
+    "description": "SNMP Client for v2/v3",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Koyabu\\SnmpClient\\": "class/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Stieven Kalengkian",
+            "email": "stieven.kalengkian@gmail.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "require": {}
+}

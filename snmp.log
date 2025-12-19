@@ -1,6 +1,0 @@
-[2025-12-18 07:41:39][ERROR] SNMP WALK failed {"oid":".1.3.6.1.2.1.31.1.1.1.1"}
-[2025-12-18 07:43:06][ERROR] SNMP WALK failed {"oid":".1.3.6.1.2.1.31.1.1.1.1"}
-[2025-12-18 07:43:23][ERROR] SNMP WALK failed {"oid":".1.3.6.1.2.1.31.1.1.1.1"}
-[2025-12-18 07:44:04][ERROR] SNMP WALK failed {"oid":".1.3.6.1.2.1.31.1.1.1.1"}
-[2025-12-18 07:50:36][ERROR] SNMP WALK failed {"oid":".1.3.6.1.2.1.31.1.1.1.1","error":"Security protocol must be one of \"DES\", \"AES128\", or \"AES\""}
-[2025-12-18 07:52:53][ERROR] SNMP WALK failed {"oid":".1.3.6.1.2.1.31.1.1.1.1","error":"Koyabu\\SnmpClient\\SnmpClient::snmpWalkRaw(): Return value must be of type array, false returned"}

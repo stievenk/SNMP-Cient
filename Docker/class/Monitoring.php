@@ -38,6 +38,7 @@ class Monitoring extends Controller {
             $t['snmp']['cpu_cores'] = $snmp->cpuCores();
             $this->Servers[] = $t;
             $server_id = $t['id'];
+            
             $this->serverUpdateSys($t);
             $this->debug($t['hostname']." => {$t['snmp']['uptime']}");
 

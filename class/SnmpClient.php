@@ -202,10 +202,15 @@ class SnmpClient
     public function memory(): array
     {
         $total = (int)$this->get('.1.3.6.1.4.1.2021.4.5.0');
-        $free  = (int)$this->get('.1.3.6.1.4.1.2021.4.11.0');
+        $free  = (int)$this->get('.1.3.6.1.4.1.2021.4.6.0');
+
+        $TotalAll  = (int)$this->get('.1.3.6.1.4.1.2021.4.11.0');
 
         $swapT = (int)$this->get('.1.3.6.1.4.1.2021.4.3.0');
         $swapF = (int)$this->get('.1.3.6.1.4.1.2021.4.4.0');
+
+        $TotalUsed = max(0, $swapT - $swapF) + max(0, $total - $free);
+
 
         return [
             'physical' => [
@@ -217,7 +222,10 @@ class SnmpClient
                 'total' => $swapT,
                 'used'  => max(0, $swapT - $swapF),
                 'free'  => $swapF
-            ]
+            ],
+            'total' => $TotalAll,
+            'total_used' => $TotalUsed,
+            'total_free' => $TotalAll - $TotalUsed
         ];
     }
 

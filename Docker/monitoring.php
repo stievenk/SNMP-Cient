@@ -1,6 +1,11 @@
 <?php
 set_time_limit(0); // unlimited
 error_reporting(E_ALL & ~E_WARNING & ~E_NOTICE & ~E_DEPRECATED & ~E_PARSE);
+snmp_set_valueretrieval(SNMP_VALUE_PLAIN);
+snmp_set_quick_print(true);
+snmp_set_oid_output_format(SNMP_OID_OUTPUT_NUMERIC);
+
+ini_set('default_socket_timeout', 3);
 
 use Koyabu\SnmpClient\SnmpClient;
 use Koyabu\SnmpClient\SnmpLogger;

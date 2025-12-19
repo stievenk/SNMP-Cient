@@ -1,15 +1,30 @@
 <?php
-namespace Koyabu\SnmpClient;
-
+set_time_limit(0); // unlimited
+use Koyabu\SnmpClient\SnmpClient;
+use Koyabu\SnmpClient\SnmpLogger;
 require 'vendor/autoload.php';
+
+// $snmp = new SnmpClient(
+//     '127.0.0.1',
+//     2,
+//     ['community' => 'monitoronly']
+// );
+
 $snmp = new SnmpClient(
     '127.0.0.1',
-    2,
-    ['community' => 'monitoronly']
+    3,
+    [
+        'sec_name' => 'snmpuser',
+        'sec_level' => 'authPriv',
+        'auth_proto' => 'SHA',
+        'auth_pass' => 'YourPass',
+        'priv_proto' => 'AES',
+        'priv_pass' => 'YourPass'
+    ], new SnmpLogger('snmp.log')
 );
 
 $if1 = $snmp->interfaces();
-sleep(300);
+sleep(500);
 $if2 = $snmp->interfaces();
 
 $data = [

@@ -1,7 +1,7 @@
 <?php
 namespace Koyabu\SnmpClient;
-use Koyabu\SnmpClient\SnmpException;
-use Koyabu\SnmpClient\SnmpLogger;
+
+use Throwable;
 
 class SnmpClient
 {
@@ -10,12 +10,18 @@ class SnmpClient
     private array $auth;
     private SnmpLogger $logger;
 
-    public function __construct(string $host, int $version = 2, array $auth = [], ?SnmpLogger $logger = null)
-    {
+    public function __construct(
+        string $host,
+        int $version = 2,
+        array $auth = [],
+        ?SnmpLogger $logger = null
+    ) {
         $this->host   = $host;
         $this->version = $version;
         $this->auth   = $auth;
         $this->logger = $logger ?? new SnmpLogger();
+
+        snmp_set_oid_output_format(SNMP_OID_OUTPUT_NUMERIC);
     }
 
     /* ================= CORE ================= */
@@ -23,8 +29,8 @@ class SnmpClient
     private function snmpGetRaw(string $oid)
     {
         try {
-            if ($this->version === 3) {
-                return snmp3_get(
+            return $this->version === 3
+                ? snmp3_get(
                     $this->host,
                     $this->auth['sec_name'],
                     $this->auth['sec_level'],
@@ -33,56 +39,119 @@ class SnmpClient
                     $this->auth['priv_proto'] ?? null,
                     $this->auth['priv_pass'] ?? null,
                     $oid
-                );
-            }
-
-            return snmp2_get($this->host, $this->auth['community'], $oid);
+                )
+                : snmp2_get($this->host, $this->auth['community'], $oid);
         } catch (Throwable $e) {
-            $this->logger->error('SNMP GET failed', ['oid' => $oid, 'error' => $e->getMessage()]);
+            $this->logger->error('SNMP GET failed', compact('oid'));
             throw new SnmpException($e->getMessage());
         }
     }
 
     private function snmpWalkRaw(string $oid): array
-    {
-        try {
-            if ($this->version === 3) {
-                return snmp3_walk(
+{
+    try {
+        if ($this->version === 3) {
+
+            if ($this->auth['sec_level'] === 'authPriv') {
+                return snmp3_real_walk(
                     $this->host,
                     $this->auth['sec_name'],
                     $this->auth['sec_level'],
                     $this->auth['auth_proto'],
                     $this->auth['auth_pass'],
-                    $this->auth['priv_proto'] ?? null,
-                    $this->auth['priv_pass'] ?? null,
+                    $this->auth['priv_proto'],
+                    $this->auth['priv_pass'],
                     $oid
                 );
             }
 
-            return snmp2_walk($this->host, $this->auth['community'], $oid);
-        } catch (Throwable $e) {
-            $this->logger->error('SNMP WALK failed', ['oid' => $oid]);
-            throw new SnmpException($e->getMessage());
+            // authNoPriv
+            return snmp3_real_walk(
+                $this->host,
+                $this->auth['sec_name'],
+                $this->auth['sec_level'],
+                $this->auth['auth_proto'],
+                $this->auth['auth_pass'],
+                null,
+                null,
+                $oid
+            );
         }
-    }
 
-    private function clean($value)
+        return snmp2_real_walk($this->host, $this->auth['community'], $oid);
+
+    } catch (\Throwable $e) {
+        $this->logger->error('SNMP WALK failed', ['oid' => $oid, 'error' => $e->getMessage()]);
+        throw new SnmpException($e->getMessage());
+    }
+}
+
+
+    private function cleanValue($value): ?string
     {
-        if ($value === false || $value === null) {
-            return null;
-        }
+        if ($value === false || $value === null) return null;
         return trim(preg_replace('/^[A-Z\-]+:\s*/', '', (string)$value));
     }
 
-    protected function get(string $oid)
+    protected function get(string $oid): ?string
     {
-        return $this->clean($this->snmpGetRaw($oid));
+        return $this->cleanValue($this->snmpGetRaw($oid));
     }
 
     protected function walk(string $oid): array
     {
-        $raw = $this->snmpWalkRaw($oid);
-        return array_map([$this, 'clean'], $raw ?: []);
+        $raw = $this->snmpWalkRaw($oid) ?: [];
+        foreach ($raw as $k => $v) {
+            $raw[$k] = $this->cleanValue($v);
+        }
+        return $raw;
+    }
+
+    /* ================= PARSERS ================= */
+
+    private function parseIndex(string $oid): ?int
+    {
+        return preg_match('/\.(\d+)$/', $oid, $m) ? (int)$m[1] : null;
+    }
+
+    private function parseIpFromOid(string $oid): ?string
+    {
+        return preg_match('/(\d+\.\d+\.\d+\.\d+)$/', $oid, $m) ? $m[1] : null;
+    }
+
+    private function normalizeStringByIndex(array $walk): array
+    {
+        $out = [];
+        foreach ($walk as $oid => $val) {
+            if (($i = $this->parseIndex($oid)) !== null) {
+                $out[$i] = (string)$val;
+            }
+        }
+        return $out;
+    }
+
+    private function normalizeCounterByIndex(array $walk): array
+    {
+        $out = [];
+        foreach ($walk as $oid => $val) {
+            if (($i = $this->parseIndex($oid)) !== null) {
+                $out[$i] = (int)filter_var($val, FILTER_SANITIZE_NUMBER_INT);
+            }
+        }
+        return $out;
+    }
+
+    private function normalizeIpMap(array $walk, bool $numeric = false): array
+    {
+        $out = [];
+        foreach ($walk as $oid => $val) {
+            if ($ip = $this->parseIpFromOid($oid)) {
+                $out[$ip] = $numeric
+                    ? (int)filter_var($val, FILTER_SANITIZE_NUMBER_INT)
+                    : $val;
+            }
+        }
+        return $out;
     }
 
     /* ================= SYSTEM ================= */
@@ -93,7 +162,8 @@ class SnmpClient
             'hostname' => $this->get('.1.3.6.1.2.1.1.5.0'),
             'os'       => $this->get('.1.3.6.1.2.1.1.1.0'),
             'location' => $this->get('.1.3.6.1.2.1.1.6.0'),
-            'uptime'   => $this->get('.1.3.6.1.2.1.1.3.0')
+            'snpm_uptime'   => $this->get('.1.3.6.1.2.1.1.3.0'),
+            'server_uptime' => $this->get('.1.3.6.1.2.1.25.1.1.0')
         ];
     }
 
@@ -101,33 +171,52 @@ class SnmpClient
 
     public function cpuLoad(): array
     {
-        $load = $this->walk('.1.3.6.1.4.1.2021.10.1.3');
+        $l = $this->normalizeStringByIndex(
+            $this->walk('.1.3.6.1.4.1.2021.10.1.3')
+        );
+        // print_r($l);
+
         return [
-            '1min'  => (float)($load[0] ?? 0),
-            '5min'  => (float)($load[1] ?? 0),
-            '15min' => (float)($load[2] ?? 0)
+            '1min'  => (float)($l[1] ?? 0),
+            '5min'  => (float)($l[2] ?? 0),
+            '15min' => (float)($l[3] ?? 0),
         ];
     }
+
+    public function cpuCores(): int
+    {
+        // Cara cepat (jika tersedia)
+        $num = $this->get('.1.3.6.1.4.1.2021.11.9.0');
+        if (is_numeric($num) && (int)$num > 0) {
+            return (int)$num;
+        }
+
+        // Fallback: hitung hrProcessorLoad
+        $cores = $this->walk('.1.3.6.1.2.1.25.3.3.1.2');
+        return count($cores);
+    }
+
 
     /* ================= MEMORY ================= */
 
     public function memory(): array
     {
-        $pt = (int)$this->get('.1.3.6.1.4.1.2021.4.5.0');
-        $pf = (int)$this->get('.1.3.6.1.4.1.2021.4.11.0');
-        $st = (int)$this->get('.1.3.6.1.4.1.2021.4.3.0');
-        $sf = (int)$this->get('.1.3.6.1.4.1.2021.4.4.0');
+        $total = (int)$this->get('.1.3.6.1.4.1.2021.4.5.0');
+        $free  = (int)$this->get('.1.3.6.1.4.1.2021.4.11.0');
+
+        $swapT = (int)$this->get('.1.3.6.1.4.1.2021.4.3.0');
+        $swapF = (int)$this->get('.1.3.6.1.4.1.2021.4.4.0');
 
         return [
             'physical' => [
-                'total' => $pt,
-                'used'  => $pt - $pf,
-                'free'  => $pf
+                'total' => $total,
+                'used'  => max(0, $total - $free),
+                'free'  => $free
             ],
             'swap' => [
-                'total' => $st,
-                'used'  => $st - $sf,
-                'free'  => $sf
+                'total' => $swapT,
+                'used'  => max(0, $swapT - $swapF),
+                'free'  => $swapF
             ]
         ];
     }
@@ -136,16 +225,22 @@ class SnmpClient
 
     public function disks(): array
     {
-        $mounts = $this->walk('.1.3.6.1.4.1.2021.9.1.2');
-        $total  = $this->walk('.1.3.6.1.4.1.2021.9.1.6');
-        $used   = $this->walk('.1.3.6.1.4.1.2021.9.1.8');
+        $mnt = $this->normalizeStringByIndex(
+            $this->walk('.1.3.6.1.4.1.2021.9.1.2')
+        );
+        $tot = $this->normalizeCounterByIndex(
+            $this->walk('.1.3.6.1.4.1.2021.9.1.6')
+        );
+        $use = $this->normalizeCounterByIndex(
+            $this->walk('.1.3.6.1.4.1.2021.9.1.8')
+        );
 
         $out = [];
-        foreach ($mounts as $i => $mnt) {
+        foreach ($mnt as $i => $m) {
             $out[] = [
-                'mount' => $mnt,
-                'total' => (int)($total[$i] ?? 0),
-                'used'  => (int)($used[$i] ?? 0)
+                'mount' => $m,
+                'total_kb' => $tot[$i] ?? 0,
+                'used_kb'  => $use[$i] ?? 0
             ];
         }
         return $out;
@@ -155,33 +250,51 @@ class SnmpClient
 
     public function interfaces(): array
     {
-        $name = $this->walk('.1.3.6.1.2.1.2.2.1.2');
-        $rx   = $this->walk('.1.3.6.1.2.1.2.2.1.10');
-        $tx   = $this->walk('.1.3.6.1.2.1.2.2.1.16');
+        $names = $this->normalizeStringByIndex(
+            $this->walk('.1.3.6.1.2.1.31.1.1.1.1')
+        );
+        $rx = $this->normalizeCounterByIndex(
+            $this->walk('.1.3.6.1.2.1.31.1.1.1.6')
+        );
+        $tx = $this->normalizeCounterByIndex(
+            $this->walk('.1.3.6.1.2.1.31.1.1.1.10')
+        );
 
-        $ifs = [];
-        foreach ($name as $i => $dev) {
-            $ifs[$i + 1] = [
-                'device' => $dev,
-                'rx' => (int)($rx[$i] ?? 0),
-                'tx' => (int)($tx[$i] ?? 0)
+        $out = [];
+        foreach ($names as $i => $n) {
+            $out[$i] = [
+                'device' => $n,
+                'rx_bytes' => $rx[$i] ?? 0,
+                'tx_bytes' => $tx[$i] ?? 0,
             ];
         }
-        return $ifs;
+        return $out;
     }
 
     public function ipAddresses(): array
     {
-        $ips  = $this->walk('.1.3.6.1.2.1.4.20.1.1');
-        $ifid = $this->walk('.1.3.6.1.2.1.4.20.1.2');
-        $mask = $this->walk('.1.3.6.1.2.1.4.20.1.3');
+        $ips = $this->normalizeIpMap(
+            $this->walk('.1.3.6.1.2.1.4.20.1.1')
+        );
+        $idx = $this->normalizeIpMap(
+            $this->walk('.1.3.6.1.2.1.4.20.1.2'),
+            true
+        );
+        $mask = $this->normalizeIpMap(
+            $this->walk('.1.3.6.1.2.1.4.20.1.3')
+        );
+        $names = $this->normalizeStringByIndex(
+            $this->walk('.1.3.6.1.2.1.31.1.1.1.1')
+        );
 
         $out = [];
-        foreach ($ips as $i => $ip) {
+        foreach ($ips as $ip => $addr) {
+            $i = $idx[$ip] ?? null;
             $out[] = [
-                'ip' => $ip,
-                'interface_index' => (int)($ifid[$i] ?? 0),
-                'netmask' => $mask[$i] ?? null
+                'ip' => $addr,
+                'interface_index' => $i,
+                'device' => $names[$i] ?? 'unknown',
+                'netmask' => $mask[$ip] ?? null
             ];
         }
         return $out;
@@ -191,24 +304,41 @@ class SnmpClient
 
     public function listeningPorts(): array
     {
-        $ports = $this->walk('.1.3.6.1.2.1.6.13.1.3');
-        return array_values(array_unique(array_map('intval', $ports)));
+        $walk = $this->walk('.1.3.6.1.2.1.6.13.1.3');
+
+        if (!$walk) {
+            return [];
+        }
+
+        $ports = [];
+
+        foreach ($walk as $oid => $value) {
+            $port = (int) filter_var($value, FILTER_SANITIZE_NUMBER_INT);
+
+            // valid TCP port
+            if ($port > 0 && $port <= 65535) {
+                $ports[$port] = true;
+            }
+        }
+
+        return array_keys($ports);
     }
 
-    /* ================= TRAFFIC DELTA ================= */
+
+    /* ================= TRAFFIC ================= */
 
     public static function trafficDelta(array $old, array $new): array
     {
-        $delta = [];
-        foreach ($new as $idx => $iface) {
-            if (!isset($old[$idx])) continue;
-            $delta[$idx] = [
-                'device' => $iface['device'],
-                'rx_bps' => max(0, $iface['rx'] - $old[$idx]['rx']),
-                'tx_bps' => max(0, $iface['tx'] - $old[$idx]['tx'])
+        $d = [];
+        foreach ($new as $i => $n) {
+            if (!isset($old[$i])) continue;
+            $d[$i] = [
+                'device' => $n['device'],
+                'rx_bps' => max(0, $n['rx_bytes'] - $old[$i]['rx_bytes']),
+                'tx_bps' => max(0, $n['tx_bytes'] - $old[$i]['tx_bytes']),
             ];
         }
-        return $delta;
+        return $d;
     }
 }
 ?>

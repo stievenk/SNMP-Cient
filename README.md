@@ -1,254 +1,324 @@
 # Koyabu\SnmpClient
 
-`Koyabu\SnmpClient` adalah pustaka PHP ringan dan modern untuk berinteraksi dengan perangkat yang mendukung SNMP (v2c dan v3). Pustaka ini menyediakan antarmuka yang sederhana untuk mengambil data umum seperti informasi sistem, penggunaan CPU, memori, disk, dan statistik jaringan.
+`Koyabu\SnmpClient` adalah **library PHP ringan** untuk mengambil informasi server atau perangkat jaringan menggunakan **SNMP** (Simple Network Management Protocol).
 
-## Fitur
+Library ini cocok untuk:
 
-- Dukungan untuk SNMPv2c dan SNMPv3.
-- Metode siap pakai untuk mengambil metrik umum (CPU, memori, disk, jaringan).
-- Penanganan _exception_ yang jelas untuk kegagalan koneksi.
-- Logging error yang dapat dikonfigurasi.
-- Fungsi utilitas untuk menghitung selisih lalu lintas jaringan (_traffic delta_).
-- Kode modern dengan _type-hinting_ dan standar PSR.
+- monitoring server Linux
+- dashboard server / VPS
+- sistem monitoring internal
+- belajar SNMP dengan cara yang lebih sederhana
 
-## Persyaratan
+Mendukung **SNMP v2c dan SNMP v3**, serta sudah dirancang agar **aman, stabil, dan mudah digunakan**.
 
-- PHP 7.4 atau lebih baru
-- Ekstensi `php-snmp`
+---
+
+## ✨ Fitur Utama
+
+- ✅ Mendukung **SNMP v2c & v3**
+- ✅ Ambil data **sistem, CPU, RAM, disk, jaringan**
+- ✅ Ambil **daftar IP address server**
+- ✅ Ambil **port TCP yang sedang LISTEN**
+- ✅ Hitung **traffic jaringan (RX / TX delta)**
+- ✅ Error handling jelas dengan Exception
+- ✅ Logging otomatis
+- ✅ Kode modern, rapi, dan efisien
+
+---
+
+## 📋 Persyaratan
+
+- PHP **7.4 atau lebih baru**
+- Ekstensi PHP: `php-snmp`
 - Composer
 
-## Instalasi
+Pastikan SNMP aktif di server target (biasanya `snmpd` di Linux).
 
-Pustaka ini dirancang untuk digunakan dengan Composer. Untuk menambahkannya ke proyek Anda, jalankan perintah berikut:
+---
+
+## 📦 Instalasi
+
+Jika library tersedia via Composer:
 
 ```bash
 composer require koyabu/snmpclient
 ```
 
-_(Catatan: Perintah di atas mengasumsikan pustaka Anda tersedia di Packagist. Jika ini adalah pustaka lokal, pastikan `autoload` di `composer.json` Anda sudah dikonfigurasi dengan benar)._
+Jika ini library lokal, pastikan autoload di `composer.json` sudah benar.
 
-Jangan lupa untuk menyertakan autoloader Composer di file PHP Anda:
+Jangan lupa load autoloader:
 
 ```php
 require 'vendor/autoload.php';
 ```
 
-## Penggunaan
+---
 
-### Inisialisasi Klien
+## 🚀 Cara Menggunakan
 
-Pertama, buat instance dari `SnmpClient`. Anda perlu menyediakan host, versi SNMP, dan kredensial otentikasi.
+### 1️⃣ Inisialisasi SnmpClient
 
-**SNMPv2c:**
-
-Untuk v2c, kredensialnya adalah `community string`.
+#### 🔹 SNMP v2c (paling umum & mudah)
 
 ```php
 use Koyabu\SnmpClient\SnmpClient;
 
 $snmp = new SnmpClient(
     '192.168.1.1',
-    2, // Versi SNMP
+    2,
     ['community' => 'public']
 );
 ```
 
-**SNMPv3:**
+---
 
-Untuk v3, kredensialnya lebih kompleks dan mencakup tingkat keamanan, protokol, dan kata sandi.
+#### 🔹 SNMP v3 (lebih aman)
 
 ```php
 use Koyabu\SnmpClient\SnmpClient;
 
 $authV3 = [
-    'sec_name'   => 'myuser',
-    'sec_level'  => 'authPriv', // noAuthNoPriv, authNoPriv, atau authPriv
-    'auth_proto' => 'SHA',      // MD5 atau SHA
-    'auth_pass'  => 'myAuthPassword',
-    'priv_proto' => 'AES',      // DES atau AES
-    'priv_pass'  => 'myPrivPassword'
+    'sec_name'   => 'snmpuser',
+    'sec_level'  => 'authPriv',
+    'auth_proto' => 'SHA',
+    'auth_pass'  => 'passwordAuth',
+    'priv_proto' => 'AES',
+    'priv_pass'  => 'passwordPriv'
 ];
 
 $snmp = new SnmpClient('192.168.1.1', 3, $authV3);
 ```
 
-### Mengambil Data
+---
 
-Semua metode pengambilan data akan mengembalikan `array` atau `null` jika terjadi kegagalan.
+## 📊 Mengambil Data
 
-#### Informasi Sistem
+### 🖥️ Informasi Sistem
 
 ```php
-$systemInfo = $snmp->systemInfo();
-print_r($systemInfo);
+print_r($snmp->systemInfo());
 ```
 
-_Contoh Output:_
+Contoh hasil:
 
-```
+```php
 [
-    'hostname' => 'my-linux-server',
-    'os'       => 'Linux my-linux-server 5.4.0-121-generic ...',
-    'location' => 'Server Room',
-    'uptime'   => '1 day, 2:30:45.12'
+  'hostname' => 'server-01',
+  'os'       => 'Linux Ubuntu 22.04',
+  'location' => 'Data Center',
+  'uptime'   => '3 days, 04:12:55'
 ]
 ```
 
-#### Beban CPU
+---
+
+### ⚙️ Beban CPU
 
 ```php
-$cpuLoad = $snmp->cpuLoad();
-print_r($cpuLoad);
+print_r($snmp->cpuLoad());
 ```
 
-_Contoh Output:_
-
-```
+```php
 [
-    '1min'  => 0.55,
-    '5min'  => 0.62,
-    '15min' => 0.60
+  '1min'  => 0.25,
+  '5min'  => 0.30,
+  '15min' => 0.28
 ]
 ```
 
-#### Penggunaan Memori
+---
 
-Mengembalikan penggunaan memori Fisik dan Swap dalam Kilobyte (KB).
+### 🧠 Memori (RAM & Swap)
+
+> Semua nilai dalam **KB**
 
 ```php
-$memory = $snmp->memory();
-print_r($memory);
+print_r($snmp->memory());
 ```
 
-_Contoh Output:_
-
-```
+```php
 [
-    'physical' => [
-        'total' => 8192000,
-        'used'  => 4192000,
-        'free'  => 4000000
-    ],
-    'swap' => [
-        'total' => 2048000,
-        'used'  => 128000,
-        'free'  => 1920000
-    ]
+  'physical' => [
+    'total' => 8192000,
+    'used'  => 4200000,
+    'free'  => 3992000
+  ],
+  'swap' => [
+    'total' => 2048000,
+    'used'  => 128000,
+    'free'  => 1920000
+  ]
 ]
 ```
 
-#### Penggunaan Disk
+---
 
-Mengembalikan daftar partisi disk dalam Kilobyte (KB).
+### 💽 Disk
 
 ```php
-$disks = $snmp->disks();
-print_r($disks);
+print_r($snmp->disks());
 ```
 
-_Contoh Output:_
-
-```
+```php
 [
-    [
-        'mount' => '/',
-        'total' => 512000000,
-        'used'  => 256000000
-    ],
-    [
-        'mount' => '/home',
-        'total' => 1024000000,
-        'used'  => 307200000
-    ]
+  [
+    'mount'    => '/',
+    'total_kb' => 512000000,
+    'used_kb'  => 256000000
+  ],
+  [
+    'mount'    => '/home',
+    'total_kb' => 1024000000,
+    'used_kb'  => 307200000
+  ]
 ]
 ```
 
-#### Antarmuka Jaringan
+---
 
-Mengembalikan total byte yang diterima (rx) dan dikirim (tx) untuk setiap antarmuka.
+### 🌐 Interface Jaringan
 
 ```php
-$interfaces = $snmp->interfaces();
-print_r($interfaces);
+print_r($snmp->interfaces());
 ```
 
-_Contoh Output:_
-
-```
+```php
 [
-    1 => [
-        'device' => 'lo',
-        'rx' => 12345678,
-        'tx' => 12345678
-    ],
-    2 => [
-        'device' => 'eth0',
-        'rx' => 987654321,
-        'tx' => 123456789
-    ]
+  2 => [
+    'device'    => 'eth0',
+    'rx_bytes'  => 987654321,
+    'tx_bytes'  => 123456789
+  ]
 ]
 ```
 
-### Menghitung Selisih Lalu Lintas (Traffic Delta)
+---
 
-Untuk menghitung kecepatan lalu lintas jaringan (misalnya, dalam bps), Anda perlu mengambil data `interfaces()` dua kali dengan jeda waktu, lalu gunakan metode statis `trafficDelta()`.
+### 🧾 Daftar IP Address Server
+
+Mengembalikan semua IP yang terdaftar di server (LAN, Docker, VPN, dsb).
 
 ```php
-// 1. Ambil data pertama
-$interfaces1 = $snmp->interfaces();
-
-// 2. Tunggu selama interval tertentu (misal, 60 detik)
-$interval = 60;
-sleep($interval);
-
-// 3. Ambil data kedua
-$interfaces2 = $snmp->interfaces();
-
-// 4. Hitung selisihnya
-$traffic = SnmpClient::trafficDelta($interfaces1, $interfaces2);
-
-// 5. (Opsional) Hitung kecepatan dalam bit per detik (bps)
-foreach ($traffic as $index => &$iface) {
-    // Hasil dari trafficDelta adalah dalam bytes. Kalikan 8 untuk bit.
-    // Bagi dengan interval untuk mendapatkan rate per detik.
-    $iface['rx_bps'] = ($iface['rx_bps'] * 8) / $interval;
-    $iface['tx_bps'] = ($iface['tx_bps'] * 8) / $interval;
-}
-unset($iface); // Hapus referensi
-
-print_r($traffic);
+print_r($snmp->ipAddresses());
 ```
 
-## Penanganan Error
+```php
+[
+  [
+    'ip' => '103.150.191.56',
+    'interface_index' => 2,
+    'device' => 'eth0',
+    'netmask' => '255.255.254.0'
+  ],
+  [
+    'ip' => '172.22.0.1',
+    'interface_index' => 178,
+    'device' => 'ztdiyuprfr',
+    'netmask' => '255.255.0.0'
+  ]
+]
+```
 
-Jika permintaan SNMP gagal (misalnya, _timeout_, host tidak terjangkau, atau kredensial salah), sebuah `SnmpException` akan dilemparkan. Selalu bungkus pemanggilan metode dalam blok `try-catch`.
+> ⚠️ Catatan:
+>
+> - IP Docker / VPN **akan ikut terbaca**
+> - Ini normal dan **bukan bug**
+
+---
+
+### 🔐 Port TCP yang Sedang LISTEN
+
+```php
+print_r($snmp->listeningPorts());
+```
+
+```php
+[22, 80, 443, 3306]
+```
+
+📌 Hanya port **TCP LISTEN**, bukan UDP.
+
+---
+
+## 📈 Hitung Traffic Jaringan (RX / TX)
+
+```php
+$first  = $snmp->interfaces();
+sleep(60);
+$second = $snmp->interfaces();
+
+$delta = SnmpClient::trafficDelta($first, $second);
+
+print_r($delta);
+```
+
+Hasil (dalam **byte per interval**):
+
+```php
+[
+  2 => [
+    'device' => 'eth0',
+    'rx_bps' => 102400,
+    'tx_bps' => 204800
+  ]
+]
+```
+
+> Jika ingin **bit per detik (bps)**:
+
+```php
+$iface['rx_bps'] = ($iface['rx_bps'] * 8) / 60;
+```
+
+---
+
+## ❌ Penanganan Error
+
+Semua error akan melempar `SnmpException`.
 
 ```php
 use Koyabu\SnmpClient\SnmpException;
 
 try {
-    $systemInfo = $snmp->systemInfo();
+    $snmp->systemInfo();
 } catch (SnmpException $e) {
-    echo "Gagal mengambil data SNMP: " . $e->getMessage();
-    // Error juga akan dicatat secara otomatis oleh logger
+    echo "SNMP Error: " . $e->getMessage();
 }
 ```
 
-### Logging
+---
 
-Secara default, semua error dicatat ke `/var/log/snmp-monitor.log`. Anda dapat mengubah lokasi file log dengan menyediakan instance `SnmpLogger` Anda sendiri saat inisialisasi.
+## 📝 Logging
+
+Default log:
+
+```
+/var/log/snmp-monitor.log
+```
+
+Custom log:
 
 ```php
-use Koyabu\SnmpClient\SnmpClient;
 use Koyabu\SnmpClient\SnmpLogger;
 
-// Simpan log di direktori proyek
 $logger = new SnmpLogger(__DIR__ . '/snmp.log');
 
 $snmp = new SnmpClient(
     '192.168.1.1',
     2,
     ['community' => 'public'],
-    $logger // Teruskan logger kustom
+    $logger
 );
 ```
+
+---
+
+## ✅ Penutup
+
+Library ini dirancang agar:
+
+- **mudah dipakai user awam**
+- **cukup kuat untuk produksi**
+- **tidak ribet SNMP raw**
+
+Silakan dikembangkan lebih lanjut sesuai kebutuhan monitoring Anda.

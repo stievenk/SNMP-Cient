@@ -1,0 +1,26 @@
+services:
+  app:
+    container_name: snmp-monitor-app
+
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+
+    volumes:
+      - ./logs:/opt/snmp-monitor/logs
+
+    networks:
+      - snmpnet
+
+networks:
+  snmpnet:
+    driver: bridge

@@ -6,6 +6,7 @@ class Controller extends Connection {
     public $conn;
 
     public function __construct($config) {
+        $this->config = $config;
         try {
             if (empty($config['mysql']) || empty($config['mysql']['host']) 
             || empty($config['mysql']['user']) || empty($config['mysql']['data'])) {

@@ -6,6 +6,7 @@ class Connection {
 	
 	function __construct($config) {
 		// print_r($config); exit;
+		$this->config = $config;
 		try {
             if (empty($config['mysql']) || empty($config['mysql']['host']) 
             || empty($config['mysql']['user']) || empty($config['mysql']['data'])) {

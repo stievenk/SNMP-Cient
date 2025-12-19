@@ -1,15 +1,23 @@
 <?php
 use Koyabu\SnmpClient\SnmpClient;
 use Koyabu\SnmpClient\SnmpLogger;
+Use Koyabu\TelegramAPI\Telegram;
 
 class Monitoring extends Controller {
     public $error;
     public $config;
     public $conn;
 
+    public $Telegram;
+    public $notif = false;
+
     public $Servers = [];
 
     public function run() {
+        if (!empty($this->config['telegram'])) {
+            $this->notif = $this->config['telegram']['notif'];
+            $this->Telegram = new Telegram($this->config['telegram']);
+        }
         $this->serverList();
     }
 
@@ -19,18 +27,36 @@ class Monitoring extends Controller {
         left join server_system_info as si on si.server_id = s.id
         ");
         while($t = $this->fetch_assoc($g)) {
-            $snmp = new SnmpClient(
-                $t['ip_public'] ?? $t['ip_local'],
-                3,
-                [
-                    'sec_name' => $t['v3_user'],
-                    'sec_level' => $t['v3_sec_level'],
-                    'auth_proto' => $t['v3_auth_proto'],
-                    'auth_pass' => $t['v3_auth_pass'],
-                    'priv_proto' => $t['v3_priv_proto'],
-                    'priv_pass' => $t['v3_priv_pass']
-                ], new SnmpLogger('snmp.log')
-            );
+            $this->debug($t['hostname']." Starting Monitoring SNMPv{$t['snmp_version']}");
+            if (empty($t['snmp_version'])
+            or empty($t['community'])) {
+                $this->debug($t['hostname'], ". Skipped no SNMP Profile");
+                continue;
+            }
+            if (empty($t['ip_public']) and empty($t['ip_local'])) {
+                $this->debug($t['hostname']." Skipped no IP Address");
+                continue;
+            }
+            if ($t['snmp_version'] == 3) {
+                $snmp = new SnmpClient(
+                    $t['ip_public'] ?? $t['ip_local'],
+                    3,
+                    [
+                        'sec_name' => $t['v3_user'],
+                        'sec_level' => $t['v3_sec_level'],
+                        'auth_proto' => $t['v3_auth_proto'],
+                        'auth_pass' => $t['v3_auth_pass'],
+                        'priv_proto' => $t['v3_priv_proto'],
+                        'priv_pass' => $t['v3_priv_pass']
+                    ], new SnmpLogger('snmp.log')
+                );
+            } else {
+                $snmp = new SnmpClient(
+                    $t['ip_public'] ?? $t['ip_local'],
+                    2,
+                    ['community' => $t['community']]
+                );
+            }
             $SysInfo = $snmp->systemInfo();
             $SysInfo['uptime'] = $this->timeticksToReadable($SysInfo['server_uptime'] ?? '');
             // print_r([$SysInfo]);
@@ -144,7 +170,20 @@ class Monitoring extends Controller {
             'swap_used' => $params['swap']['used'],
             'swap_free' => $params['swap']['free']
         ]);
-        $this->debug("Memory History Saved");
+        // Mem Notif
+        $p_prc = round(($params['physical']['used'] / $params['physical']['total']) * 100,2);
+        $s_prc = round(($params['swap']['used'] / $params['swap']['total']) * 100,);
+
+        if ($this->notif) {
+            if ($this->config['telegram']['user']) {
+                if ((float)$s_prc > 60 or ($s_prc <= 0 and $p_prc > 80)) {
+                    $this->debug(" ==> WARNING Memory Usage {$server_id}");
+                    $this->Telegram->sendMessage($this->config['telegram']['user'], 
+                    "Warning Memory Usage");
+                } 
+            }
+        }
+        $this->debug("Memory History Saved RAM:{$p_prc}%, Swap:{$s_prc}%");
     }
 
     public function saveDiskData($params,$server_id) {
@@ -178,5 +217,28 @@ class Monitoring extends Controller {
         }
         $this->debug("IP Address Saved");
     }
+
+    function timeticksToReadable(string $timeticks): string {
+        // Ambil angka di dalam tanda kurung
+        if (preg_match('/\((\d+)\)/', $timeticks, $m)) {
+            $ticks = (int)$m[1];
+            
+        } else {
+            $ticks = (int)$timeticks;
+        }
+        $seconds = $ticks / 100; // 1 tick = 1/100 detik
+
+            $hours = floor($seconds / 3600);
+            $minutes = floor(($seconds % 3600) / 60);
+            $secs = $seconds % 60;
+
+            $days = floor($hours / 24);
+            $hours = $hours % 24;
+
+            return sprintf('%d hari %d jam %d menit %.2f detik', $days, $hours, $minutes, $secs);
+
+        return $timeticks; // fallback
+    }
+
 }
 ?>

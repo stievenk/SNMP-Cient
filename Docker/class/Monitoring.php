@@ -22,7 +22,10 @@ class Monitoring extends Controller {
     }
 
     protected function serverList() {
-        $g = $this->select("select * from `servers` as s
+        $g = $this->select("select
+        s.id as sid, 
+        s.*, sp.*, si.* 
+       from `servers` as s
         left join server_snmp_profiles as sp on sp.server_id = s.id
         left join server_system_info as si on si.server_id = s.id
         ");
@@ -58,16 +61,28 @@ class Monitoring extends Controller {
                 );
             }
             $SysInfo = $snmp->systemInfo();
+            if (empty($SysInfo['hostname'])) {
+                $this->save('servers',[
+                    'id' => $t['id'],
+                    'updated_at' => date('Y-m-d H:i:s'),
+                    'is_active' => 0
+                ]);
+                // continue;
+                $this->sendWarning("WARNING! Server not response",$t['id']);
+                continue;
+            }
+              
             $SysInfo['uptime'] = $this->timeticksToReadable($SysInfo['server_uptime'] ?? '');
             // print_r([$SysInfo]);
             $t['snmp'] = $SysInfo; 
             $t['snmp']['cpu_cores'] = $snmp->cpuCores();
+            $t['snmp']['cpu_model'] = $snmp->cpuModel();
             $this->Servers[] = $t;
-            $server_id = $t['id'];
-            
+            $server_id = $t['sid'];
+            // print_r($t); continue;
             $this->serverUpdateSys($t);
             $this->debug($t['hostname']." => {$t['snmp']['uptime']}");
-
+            $this->debug("{$t['snmp']['cpu_model']} {$t['snmp']['cpu_cores']} Cores");
             $this->saveCPULoad($snmp->cpuLoad(),$server_id);
 
             $this->saveTraffiData($snmp->interfaces(),$server_id);
@@ -82,13 +97,15 @@ class Monitoring extends Controller {
 
     public function serverUpdateSys($params) {
         $this->save('servers',[
-            'id' => $params['id'],
+            'id' => $params['sid'],
             'updated_at' => date('Y-m-d H:i:s'),
             'location' => $params['snmp']['location'],
             'os' => $params['snmp']['os'],
             'cpu_cores' => $params['snmp']['cpu_cores'],
+            'cpu_model' => $params['snmp']['cpu_model'],
             'hostname' => $params['snmp']['hostname'],
-            'uptime' => $params['snmp']['uptime']
+            'uptime' => $params['snmp']['uptime'],
+            'is_active' => 1
         ]);
     }
 
@@ -106,6 +123,9 @@ class Monitoring extends Controller {
 
     public function saveTraffiData($params,$server_id) {
         // print_r($params);
+        $IN = 0; 
+        $OUT = 0;
+
         if (!empty($params) and is_array($params)) {
             foreach ($params as $k => $v) {
                 $this->save('server_traffic_history',[
@@ -124,8 +144,17 @@ class Monitoring extends Controller {
                     'out_bps' => $DeltaData['out']['bps'],
                     'delta_time' => $DeltaData['deltaTime']
                 ]);
+                $IN+= $DeltaData['in']['bps'];
+                $OUT+= $DeltaData['out']['bps'];
+
             }
-            $this->debug("Traffic History Saved");
+            
+            if ($IN > $this->config['warning']['traffic'] or $OUT > $this->config['warning']['traffic']) {
+                $this->sendWarning("Warning Traffic Usage Rx: ". 
+                round($IN / 1000000,4) ."Mbps Tx: ". round($OUT / 1000000,4) ."Mbps",$server_id);
+            } else {
+                $this->debug("Traffic History Saved Rx: ". round($IN / 1000000,4) ."Mbps Tx: ". round($OUT / 1000000,4) ."Mbps");
+            }
         }
     }
 
@@ -172,18 +201,17 @@ class Monitoring extends Controller {
         ]);
         // Mem Notif
         $p_prc = round(($params['physical']['used'] / $params['physical']['total']) * 100,2);
-        $s_prc = round(($params['swap']['used'] / $params['swap']['total']) * 100,);
-
-        if ($this->notif) {
-            if ($this->config['telegram']['user']) {
-                if ((float)$s_prc > 60 or ($s_prc <= 0 and $p_prc > 80)) {
-                    $this->debug(" ==> WARNING Memory Usage {$server_id}");
-                    $this->Telegram->sendMessage($this->config['telegram']['user'], 
-                    "Warning Memory Usage");
-                } 
-            }
+        $s_prc = round(($params['swap']['used'] / $params['swap']['total']) * 100,2);
+        $all_prc = round(($params['physical']['used'] + $params['swap']['used']) /
+                         ($params['physical']['total'] + $params['swap']['total']) * 100, 2);
+        $text = "Memory Used RAM:{$p_prc}%, Swap:{$s_prc}%, Total:{$all_prc}%";
+        if ((float)$s_prc > $this->config['warning']['swap']
+         or ((float) $s_prc <= 0 and (float) $p_prc > $this->config['warning']['ram']
+         or (float) $all_prc > ($this->config['warning']['all_mem'] ?? $this->config['warning']['ram']))) {
+            $this->sendWarning("WARNING! ".$text,$server_id);
+        } else {
+            $this->debug($text);
         }
-        $this->debug("Memory History Saved RAM:{$p_prc}%, Swap:{$s_prc}%");
     }
 
     public function saveDiskData($params,$server_id) {
@@ -238,6 +266,17 @@ class Monitoring extends Controller {
             return sprintf('%d hari %d jam %d menit %.2f detik', $days, $hours, $minutes, $secs);
 
         return $timeticks; // fallback
+    }
+
+    public function sendWarning($text,$server_id) {
+        if ($this->notif) {
+            if ($this->config['telegram']['user']) {
+                    $t = $this->get([ 'table' => 'servers', 'field' => 'id', 'data' => $server_id ]);
+                    $text = "[{$t['hostname']}] {$text}";
+                    $this->debug($text);
+                    $this->Telegram->sendMessage($this->config['telegram']['user'], $text);
+            }
+        }
     }
 
 }

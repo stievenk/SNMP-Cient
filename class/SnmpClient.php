@@ -196,6 +196,32 @@ class SnmpClient
         return count($cores);
     }
 
+    public function cpuModel(): ?string
+{
+    $types = $this->walk('.1.3.6.1.2.1.25.3.2.1.2');
+    $descr = $this->walk('.1.3.6.1.2.1.25.3.2.1.3');
+
+    foreach ($types as $oid => $_val) {
+
+        // Ambil index terakhir (196608, 196609, dst)
+        $index = substr(strrchr($oid, '.'), 1);
+
+        // hrDeviceType = processor
+        if (isset($descr[".1.3.6.1.2.1.25.3.2.1.3.$index"])) {
+            $desc = $descr[".1.3.6.1.2.1.25.3.2.1.3.$index"];
+
+            // Filter hanya CPU (hindari network, dll)
+            if (stripos($desc, 'Intel') !== false || stripos($desc, 'AMD') !== false) {
+                return trim($desc);
+            }
+        }
+    }
+
+    return null;
+}
+
+
+
 
     /* ================= MEMORY ================= */
 

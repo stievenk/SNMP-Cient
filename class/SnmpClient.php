@@ -43,7 +43,8 @@ class SnmpClient
                 : snmp2_get($this->host, $this->auth['community'], $oid);
         } catch (Throwable $e) {
             $this->logger->error('SNMP GET failed', compact('oid'));
-            throw new SnmpException($e->getMessage());
+            echo  ($e->getMessage().' '.compact('oid'));
+            // throw new SnmpException($e->getMessage());
         }
     }
 
@@ -82,7 +83,8 @@ class SnmpClient
 
     } catch (\Throwable $e) {
         $this->logger->error('SNMP WALK failed', ['oid' => $oid, 'error' => $e->getMessage()]);
-        throw new SnmpException($e->getMessage());
+        echo ($e->getMessage().' - '.$oid);
+        // throw new SnmpException($e->getMessage());
     }
 }
 
@@ -167,14 +169,45 @@ class SnmpClient
         ];
     }
 
+    public function detectDevice(): string
+{
+    $sysDescr = strtolower((string)$this->get('.1.3.6.1.2.1.1.1.0'));
+
+    return match (true) {
+        str_contains($sysDescr, 'linux')      => 'linux',
+        str_contains($sysDescr, 'windows')    => 'windows',
+        str_contains($sysDescr, 'darwin')     => 'mac',
+        str_contains($sysDescr, 'routeros')   => 'mikrotik',
+        str_contains($sysDescr, 'cisco')      => 'cisco',
+        str_contains($sysDescr, 'ubiquiti')   => 'ubnt',
+        default                               => 'generic',
+    };
+}
+
+
     /* ================= CPU ================= */
 
+    // public function cpuLoad(): array
+    // {
+    //     $l = $this->normalizeStringByIndex(
+    //         $this->walk('.1.3.6.1.4.1.2021.10.1.3')
+    //     );
+    //     // print_r($l);
+
+    //     return [
+    //         '1min'  => (float)($l[1] ?? 0),
+    //         '5min'  => (float)($l[2] ?? 0),
+    //         '15min' => (float)($l[3] ?? 0),
+    //     ];
+    // }
     public function cpuLoad(): array
-    {
+{
+    $device = $this->detectDevice();
+
+    if ($device === 'linux') {
         $l = $this->normalizeStringByIndex(
             $this->walk('.1.3.6.1.4.1.2021.10.1.3')
         );
-        // print_r($l);
 
         return [
             '1min'  => (float)($l[1] ?? 0),
@@ -183,18 +216,40 @@ class SnmpClient
         ];
     }
 
-    public function cpuCores(): int
-    {
-        // Cara cepat (jika tersedia)
-        $num = $this->get('.1.3.6.1.4.1.2021.11.9.0');
-        if (is_numeric($num) && (int)$num > 0) {
-            return (int)$num;
-        }
-
-        // Fallback: hitung hrProcessorLoad
-        $cores = $this->walk('.1.3.6.1.2.1.25.3.3.1.2');
-        return count($cores);
+    // fallback universal
+    $cores = $this->walk('.1.3.6.1.2.1.25.3.3.1.2');
+    if (!$cores) {
+        return ['avg' => 0];
     }
+
+    return [
+        'avg' => array_sum($cores) / count($cores),
+        '1min' => array_sum($cores) / count($cores),
+        '5min' => array_sum($cores) / count($cores), 
+        '15min' => array_sum($cores) / count($cores)
+    ];
+}
+
+
+    // public function cpuCores(): int
+    // {
+    //     // Cara cepat (jika tersedia)
+    //     $num = $this->get('.1.3.6.1.4.1.2021.11.9.0');
+    //     if (is_numeric($num) && (int)$num > 0) {
+    //         return (int)$num;
+    //     }
+
+    //     // Fallback: hitung hrProcessorLoad
+    //     $cores = $this->walk('.1.3.6.1.2.1.25.3.3.1.2');
+    //     return count($cores);
+    // }
+
+    public function cpuCores(): int
+{
+    $cores = $this->walk('.1.3.6.1.2.1.25.3.3.1.2');
+    return is_array($cores) ? count($cores) : 0;
+}
+
 
     public function cpuModel(): ?string
 {
@@ -220,23 +275,72 @@ class SnmpClient
     return null;
 }
 
-
-
-
     /* ================= MEMORY ================= */
 
-    public function memory(): array
-    {
+    // public function memory(): array
+    // {
+    //     $total = (int)$this->get('.1.3.6.1.4.1.2021.4.5.0');
+    //     $free  = (int)$this->get('.1.3.6.1.4.1.2021.4.6.0');
+
+    //     $TotalAll  = (int)$this->get('.1.3.6.1.4.1.2021.4.11.0');
+
+    //     $swapT = (int)$this->get('.1.3.6.1.4.1.2021.4.3.0');
+    //     $swapF = (int)$this->get('.1.3.6.1.4.1.2021.4.4.0');
+
+    //     $TotalUsed = max(0, $swapT - $swapF) + max(0, $total - $free);
+
+
+    //     return [
+    //         'physical' => [
+    //             'total' => $total,
+    //             'used'  => max(0, $total - $free),
+    //             'free'  => $free
+    //         ],
+    //         'swap' => [
+    //             'total' => $swapT,
+    //             'used'  => max(0, $swapT - $swapF),
+    //             'free'  => $swapF
+    //         ],
+    //         'total' => $TotalAll,
+    //         'total_used' => $TotalUsed,
+    //         'total_free' => $TotalAll - $TotalUsed
+    //     ];
+    // }
+
+    private function hrMemory(): array
+{
+    $types  = $this->walk('.1.3.6.1.2.1.25.2.3.1.2');
+    $sizes  = $this->walk('.1.3.6.1.2.1.25.2.3.1.5');
+    $used   = $this->walk('.1.3.6.1.2.1.25.2.3.1.6');
+    $units  = $this->walk('.1.3.6.1.2.1.25.2.3.1.4');
+
+    foreach ($types as $idx => $type) {
+        if (str_contains((string)$type, '25.2.1.2')) { // hrStorageRam
+            $unit  = (int)$units[$idx];
+            $total = (int)$sizes[$idx] * $unit;
+            $use   = (int)$used[$idx]  * $unit;
+
+            return [
+                'total' => $total,
+                'used'  => $use,
+                'free'  => max(0, $total - $use)
+            ];
+        }
+    }
+
+    return ['total'=>0,'used'=>0,'free'=>0];
+}
+
+public function memory(): array
+{
+    $device = $this->detectDevice();
+
+    // Linux with Net-SNMP (paling detail)
+    if ($device === 'linux') {
         $total = (int)$this->get('.1.3.6.1.4.1.2021.4.5.0');
         $free  = (int)$this->get('.1.3.6.1.4.1.2021.4.6.0');
-
-        $TotalAll  = (int)$this->get('.1.3.6.1.4.1.2021.4.11.0');
-
         $swapT = (int)$this->get('.1.3.6.1.4.1.2021.4.3.0');
         $swapF = (int)$this->get('.1.3.6.1.4.1.2021.4.4.0');
-
-        $TotalUsed = max(0, $swapT - $swapF) + max(0, $total - $free);
-
 
         return [
             'physical' => [
@@ -249,16 +353,100 @@ class SnmpClient
                 'used'  => max(0, $swapT - $swapF),
                 'free'  => $swapF
             ],
-            'total' => $TotalAll,
-            'total_used' => $TotalUsed,
-            'total_free' => $TotalAll - $TotalUsed
+            'total' => ($total + $swapT),
+            'total_used' =>(max(0, $total - $free) + max(0, $swapT - $swapF)),
+            'total_free' => $free + $swapF
         ];
     }
 
+    // Universal fallback (Windows, macOS, Router)
+    $ram = $this->hrMemory();
+
+    return [
+        'physical' => $ram,
+        'swap'     => ['total'=>0,'used'=>0,'free'=>0],
+        'total' => 0,
+        'total_used' => 0,
+        'total_free' => 0
+    ];
+}
+
+
     /* ================= DISK ================= */
 
-    public function disks(): array
-    {
+    // public function disks(): array
+    // {
+    //     $mnt = $this->normalizeStringByIndex(
+    //         $this->walk('.1.3.6.1.4.1.2021.9.1.2')
+    //     );
+    //     $tot = $this->normalizeCounterByIndex(
+    //         $this->walk('.1.3.6.1.4.1.2021.9.1.6')
+    //     );
+    //     $use = $this->normalizeCounterByIndex(
+    //         $this->walk('.1.3.6.1.4.1.2021.9.1.8')
+    //     );
+
+    //     $out = [];
+    //     foreach ($mnt as $i => $m) {
+    //         $out[] = [
+    //             'mount' => $m,
+    //             'total_kb' => $tot[$i] ?? 0,
+    //             'used_kb'  => $use[$i] ?? 0
+    //         ];
+    //     }
+    //     return $out;
+    // }
+    private function parseHrIndex(string $oid): ?string
+{
+    return preg_match('/\.25\.2\.3\.1\.\d+\.(\d+)$/', $oid, $m)
+        ? $m[1]
+        : null;
+}
+
+    private function hrDisks(): array
+{
+    $types = $this->walk('.1.3.6.1.2.1.25.2.3.1.2');
+    $desc  = $this->walk('.1.3.6.1.2.1.25.2.3.1.3');
+    $units = $this->walk('.1.3.6.1.2.1.25.2.3.1.4');
+    $size  = $this->walk('.1.3.6.1.2.1.25.2.3.1.5');
+    $used  = $this->walk('.1.3.6.1.2.1.25.2.3.1.6');
+
+    $out = [];
+
+    foreach ($types as $oid => $type) {
+
+        // hanya Fixed Disk
+        if (!str_contains((string)$type, '25.2.1.4')) {
+            continue;
+        }
+
+        $idx = $this->parseHrIndex($oid);
+        if (!$idx) continue;
+
+        $unit  = (int)($units[".1.3.6.1.2.1.25.2.3.1.4.$idx"] ?? 0);
+        $total = (int)($size[".1.3.6.1.2.1.25.2.3.1.5.$idx"] ?? 0) * $unit;
+        $use   = (int)($used[".1.3.6.1.2.1.25.2.3.1.6.$idx"] ?? 0) * $unit;
+
+        if ($total <= 0) continue;
+
+        $out[] = [
+            'mount' => $desc[".1.3.6.1.2.1.25.2.3.1.3.$idx"] ?? 'unknown',
+            'total' => (int) $total,
+            'used'  => (int) $use,
+            'free'  => max(0, $total - $use),
+        ];
+    }
+
+    return $out;
+}
+
+
+public function disks(): array
+{
+    $device = $this->detectDevice();
+
+    // Linux Net-SNMP (lebih detail & akurat)
+    if ($device === 'linux') {
         $mnt = $this->normalizeStringByIndex(
             $this->walk('.1.3.6.1.4.1.2021.9.1.2')
         );
@@ -273,12 +461,18 @@ class SnmpClient
         foreach ($mnt as $i => $m) {
             $out[] = [
                 'mount' => $m,
-                'total_kb' => $tot[$i] ?? 0,
-                'used_kb'  => $use[$i] ?? 0
+                'total' => ($tot[$i] ?? 0) * 1024,
+                'used'  => ($use[$i] ?? 0) * 1024,
+                'free'  => max(0, (($tot[$i] ?? 0) - ($use[$i] ?? 0)) * 1024),
             ];
         }
         return $out;
     }
+
+    // Universal fallback
+    return $this->hrDisks();
+}
+
 
     /* ================= NETWORK ================= */
 
@@ -288,10 +482,12 @@ class SnmpClient
             $this->walk('.1.3.6.1.2.1.31.1.1.1.1')
         );
         $rx = $this->normalizeCounterByIndex(
-            $this->walk('.1.3.6.1.2.1.31.1.1.1.6')
+            // $this->walk('.1.3.6.1.2.1.31.1.1.1.6')
+            $this->walk('.1.3.6.1.2.1.2.2.1.10')
         );
         $tx = $this->normalizeCounterByIndex(
-            $this->walk('.1.3.6.1.2.1.31.1.1.1.10')
+            // $this->walk('.1.3.6.1.2.1.31.1.1.1.10')
+            $this->walk('.1.3.6.1.2.1.2.2.1.16')
         );
 
         $out = [];

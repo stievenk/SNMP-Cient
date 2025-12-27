@@ -28,7 +28,7 @@ class Monitoring extends Controller {
        from `servers` as s
         left join server_snmp_profiles as sp on sp.server_id = s.id
         left join server_system_info as si on si.server_id = s.id
-        ");
+        where s.monitoring='Y'");
         while($t = $this->fetch_assoc($g)) {
             $this->debug($t['hostname']." Starting Monitoring SNMPv{$t['snmp_version']}");
             if (empty($t['snmp_version'])
@@ -84,17 +84,17 @@ class Monitoring extends Controller {
                 // continue;
                 if ($t['is_active'] == 1) {
                     $this->sendWarning("WARNING! Server not response",$t['sid']);
-                    if (!empty($t['telegram_notif'])) {
-                        $this->sendWarning("WARNING! Server not response ",$t['sid'],$t['telegram_notif']);
-                    }
+                    // if (!empty($t['telegram_notif'])) {
+                    //     $this->sendWarning("WARNING! Server not response ",$t['sid'],$t['telegram_notif']);
+                    // }
                 }
                 continue;
             } else {
                 if ($t['is_active'] == 0) {
                     $this->sendWarning("Server UP",$t['sid']);
-                    if (!empty($t['telegram_notif'])) {
-                        $this->sendWarning("Server UP ".$SysInfo['uptime'],$t['sid'],$t['telegram_notif']);
-                    }
+                    // if (!empty($t['telegram_notif'])) {
+                    //     $this->sendWarning("Server UP ".$SysInfo['uptime'],$t['sid'],$t['telegram_notif']);
+                    // }
                 }
             }
 
@@ -303,12 +303,13 @@ class Monitoring extends Controller {
     public function sendWarning($text,$server_id,$user='') {
         if ($this->notif) {
             $user = $user ?? $this->config['telegram']['user'];
-            if ($user) {
+            // if ($user) {
                     $t = $this->get([ 'table' => 'servers', 'field' => 'id', 'data' => $server_id ]);
+                    $user = $user ?? $t['telegram_notif'] ?? $this->config['telegram']['user'];
                     $text = "[{$t['hostname']}] {$text}";
                     $this->debug($text);
                     $this->Telegram->sendMessage($user, $text);
-            }
+            // }
         }
     }
 
